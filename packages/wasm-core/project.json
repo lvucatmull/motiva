@@ -1,0 +1,16 @@
+{
+  "name": "wasm-core",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/wasm-core/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bash packages/wasm-core/scripts/build-wasm.sh"
+      },
+      "outputs": ["{workspaceRoot}/apps/gallery-web/public/wasm"]
+    }
+  },
+  "tags": ["type:lib", "scope:wasm"]
+}
