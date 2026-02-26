@@ -1,0 +1,28 @@
+{
+  "name": "gallery-web",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/gallery-web/src",
+  "projectType": "application",
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vite --config apps/gallery-web/vite.config.mjs"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vite build --config apps/gallery-web/vite.config.mjs"
+      },
+      "outputs": ["{workspaceRoot}/dist/apps/gallery-web"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p apps/gallery-web/tsconfig.app.json --noEmit"
+      }
+    }
+  },
+  "tags": ["type:app", "scope:web"]
+}

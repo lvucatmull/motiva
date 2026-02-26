@@ -1,0 +1,44 @@
+:root {
+  --bg: #091018;
+  --text: #e9f2ff;
+  --hud: rgba(7, 14, 22, 0.75);
+  --border: rgba(155, 198, 232, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Avenir Next", "Pretendard", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 20% 10%, #182838 0%, var(--bg) 65%);
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+#hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  max-width: min(680px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--hud);
+  backdrop-filter: blur(6px);
+}
+
+#status {
+  margin: 8px 0;
+  font-size: 14px;
+}
