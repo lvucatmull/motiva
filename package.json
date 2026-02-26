@@ -1,0 +1,21 @@
+{
+  "name": "3d-gallery",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nx monorepo for WebGPU 3D gallery portfolio",
+  "scripts": {
+    "dev": "nx run gallery-web:serve",
+    "build": "nx run-many -t build --projects=wasm-core,gallery-web",
+    "build:web": "nx run gallery-web:build",
+    "build:wasm": "nx run wasm-core:build",
+    "typecheck": "nx run-many -t typecheck --projects=gallery-web,engine",
+    "graph": "nx graph"
+  },
+  "devDependencies": {
+    "@nx/js": "^22.5.2",
+    "@nx/web": "^22.5.2",
+    "nx": "^22.5.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
