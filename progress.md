@@ -39,3 +39,8 @@ Validation:
   - `pnpm build:web`: passed
   - Tried skill Playwright client execution, but module resolution failed because the client script is outside workspace and cannot resolve local `playwright` package.
 - Added `playwright` as workspace devDependency for future local validation flows.
+- Implemented Step 2 frame portal transition baseline:
+  - Added transition state model in engine (idle/entering/exiting + progress)
+  - Enter/exit scene now runs through transition timeline
+  - Added focus strength output and used it in app visual feedback
+  - Expanded render_game_to_text with transition/focus metadata

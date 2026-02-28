@@ -3,8 +3,11 @@ import {
   createDefaultProjectState,
   enterFocusedPortal,
   getActivePortalName,
+  getFocusedPortalName,
+  isPortalTransitionActive,
   returnToGallery,
   updateGallerySimulation,
+  updatePortalTransition,
   type InputState
 } from '@gallery/engine';
 import './style.css';
@@ -68,6 +71,7 @@ function resizeCanvas() {
 
 function updateSimulation(dt: number) {
   updateGallerySimulation(projectState, inputState, dt);
+  updatePortalTransition(projectState, dt);
 }
 
 function update(dt: number) {
@@ -101,10 +105,10 @@ function registerInputEvents() {
         inputState.run = true;
         break;
       case 'KeyE':
-        if (projectState.sceneMode === 'gallery') enterFocusedPortal(projectState);
+        enterFocusedPortal(projectState);
         break;
       case 'KeyG':
-        if (projectState.sceneMode === 'scene') returnToGallery(projectState);
+        returnToGallery(projectState);
         break;
       default:
         break;
@@ -199,15 +203,24 @@ async function boot() {
       target = target > Math.PI ? 0 : Math.PI * 2;
     }
 
+    const transition = projectState.transition;
+    const t = transition.phase === 'idle' ? 0 : transition.progress;
+    const transitionGlow = t * t;
+    const focusGlow = projectState.focusedFrameStrength;
+
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
           view: context.getCurrentTexture().createView(),
           clearValue: {
-            r: 0.07 + 0.01 * Math.sin(projectState.camera.position.x + osc),
-            g: 0.11 + (projectState.sceneMode === 'scene' ? 0.08 : 0),
-            b: 0.15 + 0.015 * Math.cos(projectState.camera.position.z - osc),
+            r: 0.07 + 0.01 * Math.sin(projectState.camera.position.x + osc) + 0.06 * focusGlow + 0.08 * transitionGlow,
+            g:
+              0.11 +
+              (projectState.sceneMode === 'scene' ? 0.08 : 0) +
+              (transition.phase === 'entering' ? 0.1 * transitionGlow : 0) +
+              (transition.phase === 'exiting' ? 0.04 * transitionGlow : 0),
+            b: 0.15 + 0.015 * Math.cos(projectState.camera.position.z - osc) + 0.07 * transitionGlow,
             a: 1
           },
           loadOp: 'clear',
@@ -221,8 +234,8 @@ async function boot() {
 
     setStatus(
       `mode=${projectState.sceneMode} | pos=(${projectState.camera.position.x.toFixed(2)}, ${projectState.camera.position.z.toFixed(2)}) ` +
-        `| yaw=${projectState.camera.yaw.toFixed(2)} | focus=${projectState.focusedFrameId ?? '-'} ` +
-        `| activeScene=${getActivePortalName(projectState)} | source=${source}`
+        `| focus=${projectState.focusedFrameId ?? '-'}:${projectState.focusedFrameStrength.toFixed(2)}(${getFocusedPortalName(projectState)}) ` +
+        `| transition=${transition.phase}:${transition.progress.toFixed(2)} | activeScene=${getActivePortalName(projectState)} | source=${source}`
     );
 
     requestAnimationFrame(draw);
@@ -245,8 +258,15 @@ window.render_game_to_text = () =>
       pitch: Number(projectState.camera.pitch.toFixed(3))
     },
     focusedFrameId: projectState.focusedFrameId,
+    focusedFrameName: getFocusedPortalName(projectState),
+    focusedFrameStrength: Number(projectState.focusedFrameStrength.toFixed(3)),
     activeFrameId: projectState.activeFrameId,
     activeSceneName: getActivePortalName(projectState),
+    transition: {
+      phase: projectState.transition.phase,
+      progress: Number(projectState.transition.progress.toFixed(3)),
+      running: isPortalTransitionActive(projectState)
+    },
     portals: projectState.portals,
     input: {
       ...inputState,
