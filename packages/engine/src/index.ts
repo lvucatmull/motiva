@@ -47,10 +47,17 @@ export interface ProjectState {
   focusedFrameStrength: number;
   camera: CameraState;
   meshRotation: MeshRotation;
+  meshTargetRotation: MeshRotation;
+  meshZoom: number;
+  meshTargetZoom: number;
+  meshDragging: boolean;
   portals: FramePortal[];
   velocity: Vec3;
   transition: PortalTransition;
 }
+
+export type DampFn = (current: number, target: number, dt: number) => number;
+export type ClampFn = (v: number, min: number, max: number) => number;
 
 const BASE_SPEED = 2.4;
 const RUN_MULTIPLIER = 1.8;
@@ -58,6 +65,8 @@ const MOUSE_SENSITIVITY = 0.0022;
 const PITCH_LIMIT = Math.PI * 0.45;
 const PORTAL_ENTER_DURATION = 0.55;
 const PORTAL_EXIT_DURATION = 0.45;
+const SCENE_DRAG_SENSITIVITY = 0.012;
+const ZOOM_STEP = 0.0014;
 
 export function createDefaultProjectState(): ProjectState {
   return {
@@ -71,6 +80,10 @@ export function createDefaultProjectState(): ProjectState {
       pitch: 0
     },
     meshRotation: { x: 0, y: 0, z: 0 },
+    meshTargetRotation: { x: 0, y: 0, z: 0 },
+    meshZoom: 1,
+    meshTargetZoom: 1,
+    meshDragging: false,
     portals: [
       { id: 1, position: { x: -4, y: 1.6, z: -2 }, sceneName: 'Neon Reef' },
       { id: 2, position: { x: 0, y: 1.6, z: -4 }, sceneName: 'Glass Forest' },
@@ -139,9 +152,11 @@ export function updatePortalTransition(state: ProjectState, dt: number) {
   if (state.transition.phase === 'entering') {
     state.sceneMode = 'scene';
     state.activeFrameId = state.transition.targetFrameId;
+    state.meshDragging = false;
   } else if (state.transition.phase === 'exiting') {
     state.sceneMode = 'gallery';
     state.activeFrameId = null;
+    state.meshDragging = false;
   }
 
   state.transition.phase = 'idle';
@@ -168,6 +183,58 @@ export function returnToGallery(state: ProjectState) {
   state.transition.progress = 0;
   state.transition.durationSec = PORTAL_EXIT_DURATION;
   state.transition.targetFrameId = state.activeFrameId;
+}
+
+export function beginSceneDrag(state: ProjectState) {
+  if (state.sceneMode !== 'scene') return;
+  if (state.transition.phase !== 'idle') return;
+  state.meshDragging = true;
+}
+
+export function endSceneDrag(state: ProjectState) {
+  state.meshDragging = false;
+}
+
+export function applySceneDrag(state: ProjectState, dx: number, dy: number) {
+  if (!state.meshDragging) return;
+  state.meshTargetRotation.y += dx * SCENE_DRAG_SENSITIVITY;
+  state.meshTargetRotation.x += dy * SCENE_DRAG_SENSITIVITY;
+  state.meshTargetRotation.x = clamp(state.meshTargetRotation.x, -1.2, 1.2);
+}
+
+export function applySceneZoom(state: ProjectState, wheelDeltaY: number) {
+  if (state.sceneMode !== 'scene') return;
+  if (state.transition.phase !== 'idle') return;
+  state.meshTargetZoom -= wheelDeltaY * ZOOM_STEP;
+  state.meshTargetZoom = clamp(state.meshTargetZoom, 0.45, 2.2);
+}
+
+export function resetSceneManipulation(state: ProjectState) {
+  state.meshTargetRotation.x = 0;
+  state.meshTargetRotation.y = 0;
+  state.meshTargetRotation.z = 0;
+  state.meshTargetZoom = 1;
+}
+
+export function updateSceneManipulation(
+  state: ProjectState,
+  dt: number,
+  dampFn?: DampFn,
+  clampFn?: ClampFn
+) {
+  if (state.sceneMode !== 'scene') return;
+
+  const damp = dampFn ?? defaultDamp;
+  const c = clampFn ?? clamp;
+
+  state.meshRotation.x = damp(state.meshRotation.x, state.meshTargetRotation.x, dt);
+  state.meshRotation.y = damp(state.meshRotation.y, state.meshTargetRotation.y, dt);
+  state.meshRotation.z = damp(state.meshRotation.z, state.meshTargetRotation.z, dt);
+  state.meshZoom = damp(state.meshZoom, state.meshTargetZoom, dt);
+
+  state.meshRotation.x = c(state.meshRotation.x, -1.3, 1.3);
+  state.meshRotation.y = c(state.meshRotation.y, -6.4, 6.4);
+  state.meshZoom = c(state.meshZoom, 0.45, 2.2);
 }
 
 export function isPortalTransitionActive(state: ProjectState): boolean {
@@ -215,6 +282,12 @@ function pickFocusedPortal(state: ProjectState): { id: number | null; strength: 
 
   const strength = clamp((best.score + 0.2) / 1.8, 0, 1);
   return { id: best.id, strength };
+}
+
+function defaultDamp(current: number, target: number, dt: number): number {
+  const lambda = 12;
+  const k = 1 - Math.exp(-lambda * dt);
+  return current + (target - current) * k;
 }
 
 function clamp(v: number, min: number, max: number): number {

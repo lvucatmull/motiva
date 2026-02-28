@@ -44,3 +44,8 @@ Validation:
   - Enter/exit scene now runs through transition timeline
   - Added focus strength output and used it in app visual feedback
   - Expanded render_game_to_text with transition/focus metadata
+- Implemented Step 3 scene mesh manipulation:
+  - Added scene drag/zoom/reset controls
+  - Added target/current mesh state with damped interpolation
+  - Wired WASM damp/clamp into scene manipulation update path
+  - Extended render_game_to_text with mesh manipulation states

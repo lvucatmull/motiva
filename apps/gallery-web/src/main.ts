@@ -1,13 +1,19 @@
 import {
   applyMouseLook,
+  applySceneDrag,
+  applySceneZoom,
+  beginSceneDrag,
   createDefaultProjectState,
+  endSceneDrag,
   enterFocusedPortal,
   getActivePortalName,
   getFocusedPortalName,
   isPortalTransitionActive,
+  resetSceneManipulation,
   returnToGallery,
   updateGallerySimulation,
   updatePortalTransition,
+  updateSceneManipulation,
   type InputState
 } from '@gallery/engine';
 import './style.css';
@@ -43,6 +49,7 @@ let lastTime = 0;
 let simulationAccumulator = 0;
 const FIXED_DT = 1 / 60;
 let pointerLocked = false;
+let wasmApi: WasmApi | null = null;
 
 function setStatus(text: string) {
   status.textContent = text;
@@ -72,6 +79,7 @@ function resizeCanvas() {
 function updateSimulation(dt: number) {
   updateGallerySimulation(projectState, inputState, dt);
   updatePortalTransition(projectState, dt);
+  updateSceneManipulation(projectState, dt, wasmApi?.damp_rotation, wasmApi?.clampf);
 }
 
 function update(dt: number) {
@@ -110,6 +118,9 @@ function registerInputEvents() {
       case 'KeyG':
         returnToGallery(projectState);
         break;
+      case 'KeyR':
+        resetSceneManipulation(projectState);
+        break;
       default:
         break;
     }
@@ -139,18 +150,43 @@ function registerInputEvents() {
   });
 
   canvas.addEventListener('click', async () => {
-    if (document.pointerLockElement !== canvas && projectState.sceneMode === 'gallery') {
+    if (projectState.sceneMode === 'scene') return;
+    if (document.pointerLockElement !== canvas) {
       await canvas.requestPointerLock();
     }
   });
+
+  canvas.addEventListener('mousedown', (event) => {
+    if (event.button !== 0) return;
+    if (projectState.sceneMode !== 'scene') return;
+    beginSceneDrag(projectState);
+  });
+
+  window.addEventListener('mouseup', () => {
+    endSceneDrag(projectState);
+  });
+
+  canvas.addEventListener(
+    'wheel',
+    (event) => {
+      if (projectState.sceneMode !== 'scene') return;
+      event.preventDefault();
+      applySceneZoom(projectState, event.deltaY);
+    },
+    { passive: false }
+  );
 
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
   });
 
   window.addEventListener('mousemove', (event) => {
+    if (projectState.sceneMode === 'scene') {
+      applySceneDrag(projectState, event.movementX, event.movementY);
+      return;
+    }
+
     if (!pointerLocked) return;
-    if (projectState.sceneMode !== 'gallery') return;
     applyMouseLook(projectState, event.movementX, event.movementY);
   });
 }
@@ -180,8 +216,8 @@ async function boot() {
   const format = gpuNavigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: 'opaque' });
 
-  const wasm = await loadWasm();
-  const source = wasm ? 'WASM' : 'TS fallback';
+  wasmApi = await loadWasm();
+  const source = wasmApi ? 'WASM' : 'TS fallback';
 
   let osc = 0;
   let target = Math.PI * 2;
@@ -193,8 +229,8 @@ async function boot() {
     lastTime = timestampMs;
     update(dt);
 
-    if (wasm) {
-      osc = wasm.damp_rotation(osc, target, FIXED_DT);
+    if (wasmApi) {
+      osc = wasmApi.damp_rotation(osc, target, FIXED_DT);
     } else {
       osc += (target - osc) * (1 - Math.exp(-12 * FIXED_DT));
     }
@@ -207,6 +243,7 @@ async function boot() {
     const t = transition.phase === 'idle' ? 0 : transition.progress;
     const transitionGlow = t * t;
     const focusGlow = projectState.focusedFrameStrength;
+    const meshGlow = Math.min(1, Math.abs(projectState.meshRotation.x) * 0.25 + Math.abs(projectState.meshRotation.y) * 0.2);
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -214,13 +251,22 @@ async function boot() {
         {
           view: context.getCurrentTexture().createView(),
           clearValue: {
-            r: 0.07 + 0.01 * Math.sin(projectState.camera.position.x + osc) + 0.06 * focusGlow + 0.08 * transitionGlow,
+            r:
+              0.07 +
+              0.01 * Math.sin(projectState.camera.position.x + osc) +
+              0.06 * focusGlow +
+              0.08 * transitionGlow +
+              0.05 * meshGlow,
             g:
               0.11 +
               (projectState.sceneMode === 'scene' ? 0.08 : 0) +
               (transition.phase === 'entering' ? 0.1 * transitionGlow : 0) +
               (transition.phase === 'exiting' ? 0.04 * transitionGlow : 0),
-            b: 0.15 + 0.015 * Math.cos(projectState.camera.position.z - osc) + 0.07 * transitionGlow,
+            b:
+              0.15 +
+              0.015 * Math.cos(projectState.camera.position.z - osc) +
+              0.07 * transitionGlow +
+              (projectState.sceneMode === 'scene' ? 0.03 * projectState.meshZoom : 0),
             a: 1
           },
           loadOp: 'clear',
@@ -235,7 +281,9 @@ async function boot() {
     setStatus(
       `mode=${projectState.sceneMode} | pos=(${projectState.camera.position.x.toFixed(2)}, ${projectState.camera.position.z.toFixed(2)}) ` +
         `| focus=${projectState.focusedFrameId ?? '-'}:${projectState.focusedFrameStrength.toFixed(2)}(${getFocusedPortalName(projectState)}) ` +
-        `| transition=${transition.phase}:${transition.progress.toFixed(2)} | activeScene=${getActivePortalName(projectState)} | source=${source}`
+        `| transition=${transition.phase}:${transition.progress.toFixed(2)} | activeScene=${getActivePortalName(projectState)} ` +
+        `| mesh=(${projectState.meshRotation.x.toFixed(2)},${projectState.meshRotation.y.toFixed(2)}) z=${projectState.meshZoom.toFixed(2)} ` +
+        `| source=${source}`
     );
 
     requestAnimationFrame(draw);
@@ -266,6 +314,21 @@ window.render_game_to_text = () =>
       phase: projectState.transition.phase,
       progress: Number(projectState.transition.progress.toFixed(3)),
       running: isPortalTransitionActive(projectState)
+    },
+    mesh: {
+      rotation: {
+        x: Number(projectState.meshRotation.x.toFixed(3)),
+        y: Number(projectState.meshRotation.y.toFixed(3)),
+        z: Number(projectState.meshRotation.z.toFixed(3))
+      },
+      targetRotation: {
+        x: Number(projectState.meshTargetRotation.x.toFixed(3)),
+        y: Number(projectState.meshTargetRotation.y.toFixed(3)),
+        z: Number(projectState.meshTargetRotation.z.toFixed(3))
+      },
+      zoom: Number(projectState.meshZoom.toFixed(3)),
+      targetZoom: Number(projectState.meshTargetZoom.toFixed(3)),
+      dragging: projectState.meshDragging
     },
     portals: projectState.portals,
     input: {
