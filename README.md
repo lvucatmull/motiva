@@ -15,6 +15,41 @@ pnpm build:wasm   # emcc needed
 pnpm typecheck
 ```
 
+## Dev server host/port
+
+Default:
+
+- host: `127.0.0.1`
+- port: `4200`
+
+Override with env vars:
+
+```bash
+VITE_HOST=0.0.0.0 VITE_PORT=4200 pnpm dev
+```
+
+## WASM setup (Emscripten)
+
+`packages/wasm-core/scripts/build-wasm.sh` requires `emcc`.
+
+Example setup:
+
+```bash
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk
+./emsdk install latest
+./emsdk activate latest
+source ./emsdk_env.sh
+```
+
+Verify and build:
+
+```bash
+emcc -v
+cd /Users/seongjoo/Desktop/portfolio/3d-gallery
+pnpm build:wasm
+```
+
 ## Next implementation steps
 
 1. Gallery first-person navigation (street-view style movement)
