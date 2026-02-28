@@ -1,4 +1,12 @@
-import { createDefaultProjectState } from '@gallery/engine';
+import {
+  applyMouseLook,
+  createDefaultProjectState,
+  enterFocusedPortal,
+  getActivePortalName,
+  returnToGallery,
+  updateGallerySimulation,
+  type InputState
+} from '@gallery/engine';
 import './style.css';
 
 type GPUNavigator = Navigator & {
@@ -19,6 +27,19 @@ const canvas = document.getElementById('app') as HTMLCanvasElement;
 const status = document.getElementById('status') as HTMLParagraphElement;
 
 const projectState = createDefaultProjectState();
+
+const inputState: InputState = {
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  run: false
+};
+
+let lastTime = 0;
+let simulationAccumulator = 0;
+const FIXED_DT = 1 / 60;
+let pointerLocked = false;
 
 function setStatus(text: string) {
   status.textContent = text;
@@ -43,6 +64,91 @@ function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.floor(window.innerWidth * dpr);
   canvas.height = Math.floor(window.innerHeight * dpr);
+}
+
+function updateSimulation(dt: number) {
+  updateGallerySimulation(projectState, inputState, dt);
+}
+
+function update(dt: number) {
+  simulationAccumulator += dt;
+  const maxFrame = 0.1;
+  simulationAccumulator = Math.min(simulationAccumulator, maxFrame);
+
+  while (simulationAccumulator >= FIXED_DT) {
+    updateSimulation(FIXED_DT);
+    simulationAccumulator -= FIXED_DT;
+  }
+}
+
+function registerInputEvents() {
+  window.addEventListener('keydown', (event) => {
+    switch (event.code) {
+      case 'KeyW':
+        inputState.forward = true;
+        break;
+      case 'KeyS':
+        inputState.backward = true;
+        break;
+      case 'KeyA':
+        inputState.left = true;
+        break;
+      case 'KeyD':
+        inputState.right = true;
+        break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        inputState.run = true;
+        break;
+      case 'KeyE':
+        if (projectState.sceneMode === 'gallery') enterFocusedPortal(projectState);
+        break;
+      case 'KeyG':
+        if (projectState.sceneMode === 'scene') returnToGallery(projectState);
+        break;
+      default:
+        break;
+    }
+  });
+
+  window.addEventListener('keyup', (event) => {
+    switch (event.code) {
+      case 'KeyW':
+        inputState.forward = false;
+        break;
+      case 'KeyS':
+        inputState.backward = false;
+        break;
+      case 'KeyA':
+        inputState.left = false;
+        break;
+      case 'KeyD':
+        inputState.right = false;
+        break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        inputState.run = false;
+        break;
+      default:
+        break;
+    }
+  });
+
+  canvas.addEventListener('click', async () => {
+    if (document.pointerLockElement !== canvas && projectState.sceneMode === 'gallery') {
+      await canvas.requestPointerLock();
+    }
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === canvas;
+  });
+
+  window.addEventListener('mousemove', (event) => {
+    if (!pointerLocked) return;
+    if (projectState.sceneMode !== 'gallery') return;
+    applyMouseLook(projectState, event.movementX, event.movementY);
+  });
 }
 
 async function boot() {
@@ -73,18 +179,23 @@ async function boot() {
   const wasm = await loadWasm();
   const source = wasm ? 'WASM' : 'TS fallback';
 
-  let angle = 0;
+  let osc = 0;
   let target = Math.PI * 2;
 
-  const draw = () => {
-    const dt = 1 / 60;
+  registerInputEvents();
+
+  const draw = (timestampMs: number) => {
+    const dt = Math.min((timestampMs - lastTime) / 1000 || FIXED_DT, 0.05);
+    lastTime = timestampMs;
+    update(dt);
+
     if (wasm) {
-      angle = wasm.damp_rotation(angle, target, dt);
+      osc = wasm.damp_rotation(osc, target, FIXED_DT);
     } else {
-      angle += (target - angle) * (1 - Math.exp(-12 * dt));
+      osc += (target - osc) * (1 - Math.exp(-12 * FIXED_DT));
     }
 
-    if (Math.abs(target - angle) < 0.002) {
+    if (Math.abs(target - osc) < 0.002) {
       target = target > Math.PI ? 0 : Math.PI * 2;
     }
 
@@ -94,9 +205,9 @@ async function boot() {
         {
           view: context.getCurrentTexture().createView(),
           clearValue: {
-            r: 0.06 + 0.02 * Math.sin(angle),
-            g: 0.11,
-            b: 0.16 + 0.03 * Math.cos(angle),
+            r: 0.07 + 0.01 * Math.sin(projectState.camera.position.x + osc),
+            g: 0.11 + (projectState.sceneMode === 'scene' ? 0.08 : 0),
+            b: 0.15 + 0.015 * Math.cos(projectState.camera.position.z - osc),
             a: 1
           },
           loadOp: 'clear',
@@ -108,7 +219,12 @@ async function boot() {
     pass.end();
     device.queue.submit([encoder.finish()]);
 
-    setStatus(`Nx 구조 준비 완료 | scene: ${projectState.sceneMode} | rotation source: ${source}`);
+    setStatus(
+      `mode=${projectState.sceneMode} | pos=(${projectState.camera.position.x.toFixed(2)}, ${projectState.camera.position.z.toFixed(2)}) ` +
+        `| yaw=${projectState.camera.yaw.toFixed(2)} | focus=${projectState.focusedFrameId ?? '-'} ` +
+        `| activeScene=${getActivePortalName(projectState)} | source=${source}`
+    );
+
     requestAnimationFrame(draw);
   };
 
@@ -119,14 +235,30 @@ window.addEventListener('resize', resizeCanvas);
 
 window.render_game_to_text = () =>
   JSON.stringify({
+    coordinateSystem: 'x-right y-up z-forward(negative viewed as forward in gallery movement)',
     mode: projectState.sceneMode,
-    targetPhase: 'gallery-navigation-and-portal',
-    monorepo: true,
-    projects: ['gallery-web', 'engine', 'wasm-core']
+    camera: {
+      x: Number(projectState.camera.position.x.toFixed(3)),
+      y: Number(projectState.camera.position.y.toFixed(3)),
+      z: Number(projectState.camera.position.z.toFixed(3)),
+      yaw: Number(projectState.camera.yaw.toFixed(3)),
+      pitch: Number(projectState.camera.pitch.toFixed(3))
+    },
+    focusedFrameId: projectState.focusedFrameId,
+    activeFrameId: projectState.activeFrameId,
+    activeSceneName: getActivePortalName(projectState),
+    portals: projectState.portals,
+    input: {
+      ...inputState,
+      pointerLocked
+    }
   });
 
-window.advanceTime = (_ms: number) => {
-  // Starter stub for deterministic stepping. Real step loop will be added in engine integration.
+window.advanceTime = (ms: number) => {
+  const steps = Math.max(1, Math.round(ms / (1000 / 60)));
+  for (let i = 0; i < steps; i++) {
+    updateSimulation(FIXED_DT);
+  }
 };
 
 void boot();
