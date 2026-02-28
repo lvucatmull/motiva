@@ -22,3 +22,20 @@ Validation:
 - `pnpm typecheck` -> passed.
 - `pnpm build:web` -> passed.
 - `pnpm build:wasm` not executed yet (depends on local Emscripten/emcc setup).
+
+- Added implementation planning docs under docs/implementation:
+  - 000-portfolio-product-plan.md
+  - 010-technical-stack-architecture.md
+  - 020-implementation-steps.md
+- Implemented Step 1 core interaction loop:
+  - engine camera/input/simulation model
+  - WASD + Shift movement
+  - pointer-lock mouse look
+  - focused portal detection + enter/return mode flow
+  - deterministic window.advanceTime(ms)
+  - expanded render_game_to_text payload
+- Validation run for Step 1:
+  - `pnpm typecheck`: passed
+  - `pnpm build:web`: passed
+  - Tried skill Playwright client execution, but module resolution failed because the client script is outside workspace and cannot resolve local `playwright` package.
+- Added `playwright` as workspace devDependency for future local validation flows.
